@@ -1,7 +1,11 @@
+import type { FavoriteShow } from '../types';
+
 export interface CloudConfig {
   apiUrl: string;
   familyToken: string;
 }
+
+export const DEFAULT_CLOUD_API_URL = 'https://family-dashboard-api.thom7215.workers.dev';
 
 const CONFIG_KEY = 'tv-tracker-cloud-config';
 
@@ -43,7 +47,54 @@ export async function cloudFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
-export async function syncFavoritesToCloud(favorites: unknown[]) {
+function normalizeFavorite(raw: unknown): FavoriteShow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === 'number' ? o.id : Number(o.id);
+  if (!Number.isFinite(id)) return null;
+  const name = typeof o.name === 'string' ? o.name : '';
+  if (!name) return null;
+  return {
+    id,
+    name,
+    posterPath: typeof o.posterPath === 'string' ? o.posterPath : null,
+    addedAt: typeof o.addedAt === 'string' ? o.addedAt : new Date().toISOString(),
+    lastNotifiedEpisodeId:
+      typeof o.lastNotifiedEpisodeId === 'number' ? o.lastNotifiedEpisodeId : null,
+    lastNotifiedAirDate:
+      typeof o.lastNotifiedAirDate === 'string' ? o.lastNotifiedAirDate : null,
+  };
+}
+
+export function mergeFavorites(local: FavoriteShow[], cloud: FavoriteShow[]): FavoriteShow[] {
+  const byId = new Map<number, FavoriteShow>();
+  for (const f of cloud) byId.set(f.id, f);
+  for (const f of local) {
+    const existing = byId.get(f.id);
+    if (!existing) {
+      byId.set(f.id, f);
+      continue;
+    }
+    byId.set(f.id, {
+      ...existing,
+      name: f.name || existing.name,
+      posterPath: f.posterPath ?? existing.posterPath,
+      addedAt: existing.addedAt || f.addedAt,
+      lastNotifiedEpisodeId: f.lastNotifiedEpisodeId ?? existing.lastNotifiedEpisodeId,
+      lastNotifiedAirDate: f.lastNotifiedAirDate ?? existing.lastNotifiedAirDate,
+    });
+  }
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function fetchFavoritesFromCloud(): Promise<FavoriteShow[] | null> {
+  if (!useCloudSync()) return null;
+  const raw = await cloudFetch('/api/favorites');
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeFavorite).filter((f): f is FavoriteShow => f != null);
+}
+
+export async function syncFavoritesToCloud(favorites: FavoriteShow[]) {
   const config = loadCloudConfig();
   if (!config.apiUrl || !config.familyToken) {
     syncFavoritesToLocalProxy(favorites);

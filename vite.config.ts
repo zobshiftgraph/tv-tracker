@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
-  base: mode === 'standalone' ? './' : '/',
+  base:
+    process.env.VITE_BASE ||
+    (mode === 'standalone' ? './' : mode === 'pages' ? '/family-dashboard/tv/' : '/'),
   build: {
     outDir: mode === 'standalone' ? 'standalone' : 'dist',
     emptyOutDir: true,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { loadCloudConfig, saveCloudConfig, syncFavoritesToCloud, useCloudSync } from './api/cloudConfig';
+import { DEFAULT_CLOUD_API_URL, loadCloudConfig, saveCloudConfig, useCloudSync } from './api/cloudConfig';
 import { fetchPopular, fetchThisWeek, fetchTrending, searchShows } from './api/tvmaze';
 import { ShowGrid } from './components/ShowGrid';
 import { useFavorites } from './hooks/useFavorites';
@@ -8,7 +8,7 @@ import type { Tab, TvShow } from './types';
 import './App.css';
 
 function SyncSettingsModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [apiUrl, setApiUrl] = useState(() => loadCloudConfig().apiUrl);
+  const [apiUrl, setApiUrl] = useState(() => loadCloudConfig().apiUrl || DEFAULT_CLOUD_API_URL);
   const [familyToken, setFamilyToken] = useState(() => loadCloudConfig().familyToken);
 
   const save = () => {
@@ -52,7 +52,7 @@ export default function App() {
   const [showSync, setShowSync] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(useCloudSync);
 
-  const { favorites, isFavorite, toggleFavorite, markNotified } = useFavorites();
+  const { favorites, isFavorite, toggleFavorite, markNotified, refreshFromCloud } = useFavorites();
   const { permission, requestPermission, checkFavorites } = useNotifications(favorites, markNotified);
 
   useEffect(() => {
@@ -278,7 +278,7 @@ export default function App() {
           onClose={() => setShowSync(false)}
           onSaved={() => {
             setCloudSynced(useCloudSync());
-            void syncFavoritesToCloud(favorites);
+            void refreshFromCloud();
           }}
         />
       )}

@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { syncFavoritesToCloud } from '../api/cloudConfig';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  fetchFavoritesFromCloud,
+  mergeFavorites,
+  syncFavoritesToCloud,
+  useCloudSync,
+} from '../api/cloudConfig';
 import type { FavoriteShow, TvShow } from '../types';
 
 const STORAGE_KEY = 'tv-tracker-favorites';
@@ -15,21 +20,70 @@ function loadFavorites(): FavoriteShow[] {
   }
 }
 
-function saveFavorites(favorites: FavoriteShow[]) {
+function persistLocal(favorites: FavoriteShow[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(favorites));
-  void syncFavoritesToCloud(favorites);
 }
 
 export function useFavorites() {
   const [favorites, setFavorites] = useState<FavoriteShow[]>(() => loadFavorites());
+  const hydrated = useRef(false);
+  const syncing = useRef(false);
+
+  const pullAndMerge = useCallback(async () => {
+    if (!useCloudSync() || syncing.current) return;
+    syncing.current = true;
+    try {
+      const cloud = await fetchFavoritesFromCloud();
+      if (cloud === null) return;
+      const local = loadFavorites();
+      const merged = mergeFavorites(local, cloud);
+      persistLocal(merged);
+      setFavorites(merged);
+      await syncFavoritesToCloud(merged);
+    } finally {
+      syncing.current = false;
+    }
+  }, []);
 
   useEffect(() => {
-    saveFavorites(favorites);
+    let cancelled = false;
+    (async () => {
+      let next = loadFavorites();
+      if (useCloudSync()) {
+        try {
+          const cloud = await fetchFavoritesFromCloud();
+          if (cloud) next = mergeFavorites(next, cloud);
+        } catch {
+          // keep local if cloud unreachable
+        }
+      }
+      if (cancelled) return;
+      persistLocal(next);
+      setFavorites(next);
+      hydrated.current = true;
+      if (useCloudSync()) await syncFavoritesToCloud(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    persistLocal(favorites);
+    void syncFavoritesToCloud(favorites);
   }, [favorites]);
 
   useEffect(() => {
-    void syncFavoritesToCloud(loadFavorites());
-  }, []);
+    if (!useCloudSync()) return;
+    const id = window.setInterval(() => void pullAndMerge(), 2 * 60 * 1000);
+    const onFocus = () => void pullAndMerge();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [pullAndMerge]);
 
   const isFavorite = useCallback(
     (id: number) => favorites.some((f) => f.id === id),
@@ -66,5 +120,5 @@ export function useFavorites() {
     );
   }, []);
 
-  return { favorites, isFavorite, toggleFavorite, markNotified };
+  return { favorites, isFavorite, toggleFavorite, markNotified, refreshFromCloud: pullAndMerge };
 }
