@@ -52,7 +52,15 @@ export default function App() {
   const [showSync, setShowSync] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(useCloudSync);
 
-  const { favorites, isFavorite, toggleFavorite, markNotified, refreshFromCloud } = useFavorites();
+  const {
+    favorites,
+    isFavorite,
+    toggleFavorite,
+    markNotified,
+    refreshFromCloud,
+    syncError,
+    lastSyncedAt,
+  } = useFavorites();
   const { permission, requestPermission, checkFavorites } = useNotifications(favorites, markNotified);
 
   useEffect(() => {
@@ -240,6 +248,25 @@ export default function App() {
 
         {tab === 'favorites' && (
           <>
+            {cloudSynced && (
+              <div className="sync-banner">
+                <span>
+                  {syncError
+                    ? `Cloud sync error: ${syncError}. Check Sync settings (family password).`
+                    : lastSyncedAt
+                      ? `Cloud synced ${new Date(lastSyncedAt).toLocaleTimeString()}.`
+                      : 'Loading favorites from cloud…'}
+                </span>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void refreshFromCloud()}>
+                  Sync now
+                </button>
+              </div>
+            )}
+            {!cloudSynced && favorites.length > 0 && (
+              <p className="sync-banner sync-banner-warn">
+                Favorites are only on this device. Tap <strong>☁ Sync</strong> and enter your family password to share them.
+              </p>
+            )}
             <p className="section-desc">
               {favorites.length === 0
                 ? 'Star shows from Airing today or Search to track new episodes.'

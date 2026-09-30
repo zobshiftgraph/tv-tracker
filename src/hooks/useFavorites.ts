@@ -26,20 +26,32 @@ function persistLocal(favorites: FavoriteShow[]) {
 
 export function useFavorites() {
   const [favorites, setFavorites] = useState<FavoriteShow[]>(() => loadFavorites());
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const hydrated = useRef(false);
   const syncing = useRef(false);
+  /** True after a successful GET when cloud sync is enabled (never push empty over cloud before this). */
+  const cloudPullOk = useRef(!useCloudSync());
+  const skipNextPush = useRef(true);
 
   const pullAndMerge = useCallback(async () => {
     if (!useCloudSync() || syncing.current) return;
     syncing.current = true;
+    setSyncError(null);
     try {
       const cloud = await fetchFavoritesFromCloud();
       if (cloud === null) return;
+      cloudPullOk.current = true;
       const local = loadFavorites();
       const merged = mergeFavorites(local, cloud);
+      skipNextPush.current = true;
       persistLocal(merged);
       setFavorites(merged);
       await syncFavoritesToCloud(merged);
+      setLastSyncedAt(Date.now());
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Sync failed';
+      setSyncError(msg);
     } finally {
       syncing.current = false;
     }
@@ -49,19 +61,40 @@ export function useFavorites() {
     let cancelled = false;
     (async () => {
       let next = loadFavorites();
+      let pulled = false;
+
       if (useCloudSync()) {
+        setSyncError(null);
         try {
           const cloud = await fetchFavoritesFromCloud();
-          if (cloud) next = mergeFavorites(next, cloud);
-        } catch {
-          // keep local if cloud unreachable
+          if (cloud === null) return;
+          pulled = true;
+          cloudPullOk.current = true;
+          next = mergeFavorites(next, cloud);
+        } catch (err) {
+          cloudPullOk.current = false;
+          const msg = err instanceof Error ? err.message : 'Could not load favorites from cloud';
+          setSyncError(msg);
         }
+      } else {
+        cloudPullOk.current = true;
       }
+
       if (cancelled) return;
+      skipNextPush.current = true;
       persistLocal(next);
       setFavorites(next);
       hydrated.current = true;
-      if (useCloudSync()) await syncFavoritesToCloud(next);
+
+      if (useCloudSync() && pulled) {
+        try {
+          await syncFavoritesToCloud(next);
+          setLastSyncedAt(Date.now());
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Could not save favorites to cloud';
+          setSyncError(msg);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -69,19 +102,39 @@ export function useFavorites() {
   }, []);
 
   useEffect(() => {
-    if (!hydrated.current) return;
+    if (!hydrated.current || !useCloudSync()) return;
+    if (skipNextPush.current) {
+      skipNextPush.current = false;
+      return;
+    }
+    if (favorites.length === 0 && !cloudPullOk.current) return;
+
     persistLocal(favorites);
-    void syncFavoritesToCloud(favorites);
+    void (async () => {
+      try {
+        await syncFavoritesToCloud(favorites);
+        setLastSyncedAt(Date.now());
+        setSyncError(null);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Sync failed';
+        setSyncError(msg);
+      }
+    })();
   }, [favorites]);
 
   useEffect(() => {
     if (!useCloudSync()) return;
     const id = window.setInterval(() => void pullAndMerge(), 2 * 60 * 1000);
     const onFocus = () => void pullAndMerge();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void pullAndMerge();
+    };
     window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.clearInterval(id);
       window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [pullAndMerge]);
 
@@ -120,5 +173,13 @@ export function useFavorites() {
     );
   }, []);
 
-  return { favorites, isFavorite, toggleFavorite, markNotified, refreshFromCloud: pullAndMerge };
+  return {
+    favorites,
+    isFavorite,
+    toggleFavorite,
+    markNotified,
+    refreshFromCloud: pullAndMerge,
+    syncError,
+    lastSyncedAt,
+  };
 }

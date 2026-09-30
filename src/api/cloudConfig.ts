@@ -50,14 +50,21 @@ export async function cloudFetch(path: string, options: RequestInit = {}) {
 function normalizeFavorite(raw: unknown): FavoriteShow | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  const id = typeof o.id === 'number' ? o.id : Number(o.id);
+  const idRaw = o.id ?? o.showId ?? o.tvmazeId;
+  const id = typeof idRaw === 'number' ? idRaw : Number(idRaw);
   if (!Number.isFinite(id)) return null;
-  const name = typeof o.name === 'string' ? o.name : '';
+  const name = typeof o.name === 'string' ? o.name : typeof o.title === 'string' ? o.title : '';
   if (!name) return null;
+  const posterPath =
+    typeof o.posterPath === 'string'
+      ? o.posterPath
+      : typeof o.poster === 'string'
+        ? o.poster
+        : null;
   return {
     id,
     name,
-    posterPath: typeof o.posterPath === 'string' ? o.posterPath : null,
+    posterPath,
     addedAt: typeof o.addedAt === 'string' ? o.addedAt : new Date().toISOString(),
     lastNotifiedEpisodeId:
       typeof o.lastNotifiedEpisodeId === 'number' ? o.lastNotifiedEpisodeId : null,
@@ -90,8 +97,13 @@ export function mergeFavorites(local: FavoriteShow[], cloud: FavoriteShow[]): Fa
 export async function fetchFavoritesFromCloud(): Promise<FavoriteShow[] | null> {
   if (!useCloudSync()) return null;
   const raw = await cloudFetch('/api/favorites');
-  if (!Array.isArray(raw)) return [];
-  return raw.map(normalizeFavorite).filter((f): f is FavoriteShow => f != null);
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === 'object' && Array.isArray((raw as { favorites?: unknown }).favorites)
+      ? (raw as { favorites: unknown[] }).favorites
+      : null;
+  if (list === null) return [];
+  return list.map(normalizeFavorite).filter((f): f is FavoriteShow => f != null);
 }
 
 export async function syncFavoritesToCloud(favorites: FavoriteShow[]) {

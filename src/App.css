@@ -104,6 +104,27 @@ a:hover { color: var(--accent-hover); }
   margin: 0 auto;
 }
 
+.sync-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.sync-banner-warn {
+  display: block;
+  border-color: rgba(251, 191, 36, 0.35);
+  color: var(--text);
+}
+
 .section-desc {
   color: var(--muted);
   font-size: 0.9rem;
